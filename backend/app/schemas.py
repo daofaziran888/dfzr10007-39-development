@@ -220,3 +220,28 @@ class AuditEntry(BaseModel):
     field_5: str | None = None  # 返回行数
     field_6: str | None = None  # 执行时间
     field_7: str | None = None  # 复核状态
+
+
+class SnapshotPublishPayload(BaseModel):
+    """发布共享版本：可携带编辑者基于的基准引用做并发裁决。"""
+
+    base_ref: str | None = None
+    operator: str | None = None
+    # 编辑者本次要冻结的名册；不传则冻结看板当前名册。并发场景下各编辑者提交各自名册。
+    members: Any = None
+
+
+class MemberUpdatePayload(BaseModel):
+    """调整协作成员名册：接受数组或逗号分隔字符串，服务端统一规范化。"""
+
+    members: Any
+    remark: str | None = None
+
+
+class SnapshotActionResult(ActionResult):
+    """发布结果同时带回冻结快照与同版本导出文件。"""
+
+    snapshot: dict[str, Any] | None = None
+    export_file: dict[str, Any] | None = None
+    created: bool = False
+    latest_ref: str | None = None

@@ -1,12 +1,18 @@
-"""分析导出中心接口：维护导出任务，覆盖开始导出、标记完成、清理文件等动作。"""
+"""分析导出中心接口：维护导出任务，覆盖开始导出、标记完成、清理文件等动作。
+
+另外提供「共享发布快照」独立视图：协作看板发布时冻结出的同版本导出文件在这里集中展示，
+按协作成员与看板发布结果排列，概览只呈现来源明确、成员已冻结的发布结果。
+"""
 from __future__ import annotations
 
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from app.schemas import ActionResult, EntryPayload, PageResult
 from app.services.export import ExportService
+from app.services.snapshot import snapshot_service
 
 router = APIRouter(prefix="/api/export", tags=["分析导出中心"])
 
@@ -28,6 +34,31 @@ def list_entries(
         raise HTTPException(status_code=400, detail="每页最多 200 条，请缩小分页范围")
     items, total = service.list_entries(keyword=keyword, status=status, page=page, size=size)
     return PageResult(items=items, total=total, page=page, size=size)
+
+
+@router.get("/shared")
+def list_shared_exports(
+    board_no: str | None = Query(default=None, description="按来源看板编号过滤"),
+    keyword: str | None = Query(default=None, description="按看板编号/名称/协作成员检索"),
+) -> dict[str, Any]:
+    """共享发布快照独立视图：只展示冻结后的同版本导出文件，按协作成员与发布结果排列。"""
+    snapshots = snapshot_service.list_snapshots(board_no=board_no, keyword=keyword)
+    snapshot_ids = {int(row["id"]) for row in snapshots}
+    items = [row for row in snapshot_service.list_exports() if int(row["snapshot_id"]) in snapshot_ids]
+    return {"module": "collab-shared-export", "total": len(items), "items": items}
+
+
+@router.get("/shared/{export_id}/download")
+def download_shared_export(export_id: int) -> JSONResponse:
+    """下载某份不可回写的同版本导出文件（冻结清单 + 内容指纹）。"""
+    export_row = snapshot_service.get_export(export_id)
+    if export_row is None:
+        raise HTTPException(status_code=404, detail=f"共享导出文件 {export_id} 不存在")
+    filename = f"{export_row['导出编号']}-{export_row['ref'].replace('/', '-')}.json"
+    return JSONResponse(
+        content=export_row["导出清单"],
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{entry_id}", response_model=dict)
